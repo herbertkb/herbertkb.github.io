@@ -147,7 +147,7 @@ selects just the `.Mounts` section as json. `jq` pretty prints it.
 
 ### Mount local directory to container
 
-    docker run -d --name="custom-persistent" -v $HOME/some/dir:/var/custom-output custom-container
+    docker run -d --name="custom-persistent" -v $HOME/some/dir:/var/custom-output:Z custom-container
 
 This maps `$HOME/some/dir/` to `/var/custom-output` in the container. 
 `:Z` tells docker to use SELinux permissions.
