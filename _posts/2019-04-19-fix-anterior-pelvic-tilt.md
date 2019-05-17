@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "first post"
+title:  "Notes on Jeremy Ethiers video 'Fix Anterior Pelvic Tilt'"
 date:   2019-04-16
 categories: self
 ---
