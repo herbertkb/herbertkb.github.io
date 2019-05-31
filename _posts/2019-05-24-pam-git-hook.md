@@ -5,8 +5,6 @@ date:   2019-05-24
 categories: tech business-automation
 ---
 
-# Adding a git hook to a PAM 7.3 Installation
-
 These notes were taken from an enablement for DM/PAM 7.3 in April 2019.
 The following steps will add a script to an existing Business Central (BC) install to
 push commits within BC to a remote git repository. The script calls a java app
