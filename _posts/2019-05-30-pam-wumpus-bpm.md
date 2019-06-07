@@ -46,4 +46,26 @@ much more than single fields and this approach is more extendable if we'd like
 to create new behaviors for these entities in the future. I think I finally understand what "loose coupling" means. 
 
 
+Let's go ahead and create these objects in BC.
+The most foundational class is the Room, which has an id number and leads to
+other Rooms.
+![Room class]({{ site.url }}/assets/pam-wumpus/room-fields.png)
+The Cave we will explore contains all the Rooms in the game.
+![Cave class]({{ site.url }}/assets/pam-wumpus/cave-fields.png)
+Our intrepid Player will always be in a Room with a quiver of arrows. 
+![Player class]({{ site.url }}/assets/pam-wumpus/player-fields.png)
+And classes for the Wumpus, Bats, and Pits befalling our player. For now, these
+simply contain their roomId.   
+![Wumpus class]({{ site.url }}/assets/pam-wumpus/wumpus-fields.png)
+![Bat class]({{ site.url }}/assets/pam-wumpus/bat-fields.png)
+![Pit class]({{ site.url }}/assets/pam-wumpus/pit-fields.png)
 
+Now let's create the actual flow for our process. Before we start dragging boxes
+around to draw our diagram, we should first register our objects as process
+variables. For this process, we will need a Cave, and Sets of Bats, Pits, and
+Wumpuses (Wumpi?). This is bringing back bad memories of a project where we had
+dozens of process variables being passed between nodes, and the interface
+doesn't make it clear how we'd initialize our Bats as a java.util.Set. Let's go
+back to the Cave class and add our cave hazards to it's fields. 
+
+![Cave with hazards]({{ site.url }}/assets/pam-wumpus/cave-hazards.png)
