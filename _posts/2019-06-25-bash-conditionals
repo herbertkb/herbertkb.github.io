@@ -1,0 +1,78 @@
+---
+layout: post
+title:  "TIL Bash Conditionals and Prompting for Input"
+date:   2019-06-25
+categories: TIL 
+---
+
+
+So today I did some bash scripting just slightly above listing commands in order.
+
+Kind of like in Perl, you can get sequential command line arguments through the implicit `$1`, `$2`, `$3`, etc. variables. Bash has a `-n` unary operator to test if a string is empty or undefined. 
+
+So, if you want to define a default variable which can also take a value from the command line, 
+
+```shell
+my_var=some default value
+
+if [ -n "$1" ]; then
+    my_var=$1
+fi
+
+echo "$my_var"
+```
+
+Note the space between `[` and `-n`. Bash is very picky about having spaces around brackets. They need to B R E A T H.
+
+To use multiple conditionals, use C style logical operators. Ie. `||`, `&&`, `==`, `!=`. If you use the unary `!`, add spaces around it.
+
+Sometimes you'll want to prompt the user before continuing in a script. Here's a clean way to do it:
+
+```shell
+while true; do
+    read -p "Continue? (y/n?) " yn
+    case $yn in
+        [Yy]* ) 
+            echo Continuing script.
+            break;;
+        [Nn]* ) 
+            echo Script CANCELLED; exit;;
+        * ) echo "Please answer yes or no.";;
+    esac
+done
+```
+
+Tying everything together, here is a short example.
+```shell
+#!/bin/bash
+
+DEFAULT_VAR=foo
+OPTIONAL_VAR=
+
+if [ -n "$1" ]; then
+    OPTIONAL_VAR=$1
+fi
+if [ -n "$2" ]; then
+    DEFAULT_VAR=$2
+fi
+
+echo "Default variable: $DEFAULT_VAR"
+
+if [[ -n "$OPTIONAL_VAR" ]]; then 
+    echo "Continuing with Optional variable: $OPTIONAL_VAR"
+else
+    echo 
+    while true; do
+        read -p "Continue without extra param? (y/n?) " yn
+        case $yn in
+            [Yy]* ) 
+                echo "Continuing without Optional variable: $OPTIONAL_VAR"
+                break;;
+            [Nn]* ) 
+                echo "Script cancelled."; exit;;
+            * ) echo "Please answer yes or no.";;
+        esac
+    done
+fi
+```
+
