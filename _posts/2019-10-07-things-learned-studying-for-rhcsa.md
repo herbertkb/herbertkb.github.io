@@ -445,3 +445,108 @@ Reload the server: `systemctl reload ssh`
 
 Reload the server: `systemctl reload ssh`
 
+
+## Logs
+
+`systemd-journald` handles syslog messages. 
+Collects event messages from kernel, early boot process, stdout and stderr from daemons, and syslog events. 
+Restructures to standard format and writes to structured indexed system journal. By default, jounral is on filesystem that does not persist after rebooting.
+
+`rsyslog` reads from `systemd-journald` journals and forwards them to other services and may write syslog messages to persistent log files in `/var/log`, sorted by the programs which sent each message and their priority. 
+
+Log files in `/var/log`:
+
+- /var/log/messages`: most non-debug syslog messages, except security related
+
+- /var/log/secure`: security related syslog messages
+
+- /var/log/maillog`: email syslog messages
+
+- /var/log/cron`: syslog messages about scheduled jobs
+
+- /var/log/boot.log`: non-syslog messages from system startup
+
+### reviewing logs
+
+syslog messages categorized by facility (type) and priority. See `rsyslog.conf` man page.
+
+Message logging by rsyslog can be configured in  `/etc/rsyslog.conf` and any file in /etc/rsyslog.d` ending in `.conf`. 
+Each syslog rule is a single line in the file. The left side is a filter for facility and priority. The right side is which file to save the message.
+Multiple matches mean the message is written to multiple files. The keyword `none` can disable writing that message.
+
+`logrotate` can be configured to rotate old log files with dates in the rotated filenames.
+
+To manually log a syslog message, use `logger` to send that message to the `rsyslog` service. By default, it sends as the `user` facility with priority `notice`. Use `-p` to change this. This can be useful in testing the `ryslog` config. 
+
+### reviewing system journals
+
+`journalctl` displays all messages in the journal, or can be filtered. `root` has full access to all logs, regular uses may not see some messages. 
+
+`notice` and `warning` message are in bold. `error` and higher are in red. 
+
+`-n` limits the output like in `head`.
+
+`-f` follows the output like in `tail -f`.
+
+To just view errors: `journalctl -p err`
+
+Other priority levels: `debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, and `emerg` 
+To limit by time, `--since` and `--until`
+
+Ex. 
+
+`--since today`
+
+`--since "2019-02-10 20:35:55" --until "2019-02-13 12:00:00"
+
+`--since "-1 hour"
+
+To see even more details in logs, use `-o verbose` to unlock hidden fields. These fields can be used for further filtering. 
+
+Most common fields to filter by:
+```
+ _COMM is the name of the command 
+ _EXE is the path to the executable for the process 
+ _PID is the PID of the process 
+ _UID is the UID of the user running the process 
+ _SYSTEMD_UNIT is the systemd unit that started the process 
+```
+
+Example filter: `journalctl _UID=1001 _COMM=cowsay`
+
+### Preserve journal after reboot
+
+System journals defaultly stored to `/run/log/journal/` which clears on reboot.
+
+Change the `Storage` param in `/etc/systemd/journald.conf` . Options are:
+
+`persistent`: stores to  persistent `/var/log/journal/` instead. 
+`volatile`: stores to volatile `/run/log/journal/`
+`auto`: rsyslog just does whatever it wants. The default.
+
+## Accurate Time
+
+`timedatectl` for current timezone settings.
+
+`timedatectl list-timezones` for available timezone names
+
+`tzselect` to help choose correct zone.
+
+`timedatectl set-timezone America/NewYork` to set timezone
+
+`timedatectl set-time` to set current time in ISO format
+
+`timedatectl set-ntp true` to enable NTP syncing
+
+### Chronyd
+
+`chronyd` sync hardware clock with NTP clocks. 
+
+*Stratum* of NTP source is how authoritive. `stratum 0` is the time source. `stratum 1` is an NTP server directly attached to it. `stratum 2` is a machine synchronizeing with the NTP server. 
+
+`/etc/chrony.conf` has three fields: server, ip/host, and options. `iburst` uses 4 measurements to set the clock. 
+
+`chronyc` is the client to the `chronyd` daemon. To test the NTP changes, use `chronyc sources -v`
+
+
+
