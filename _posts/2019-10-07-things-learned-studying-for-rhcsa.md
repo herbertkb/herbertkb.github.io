@@ -291,4 +291,157 @@ $ ps
  4606 pts/8    00:00:00 ps
 ```
 
+### Killing Processes
+
+Process Management signals
+Numbers are for `x86_64`. For cross platform, use the short names instead 
+```
+1	HUP	Hangup			terminate terminal control process or reload process config without termination
+2	INT	Keyboard interrupt	terminate program, may be blocked or handled. Ctrl+c
+3	QUIT	Keyboard quit		as 2, with process dump. Ctrl+\
+9	KILL	Kill, unblockable	abrutly terminate program, cannot be handled, alway fatal
+15	TERM	Terminate		"polite" terminate to allow self-cleanup.
+18	CONT	Continue		resume process if stopped
+19	STOP	Stop, unblockable	stops process, may not be handled or blocked
+20	TSTP	keyboard stop		stops process, but may be handled or blocked. Ctrl+z
+```
+
+`killall` signals multiple process by command name. `pkill` allows signalling multiple processes by command name, UID, GID, PPID, or terminal. `pgrep` lists processes same way instead of signalling them. 
+
+
+Force user logout: `pkill -SIGKILL -u bob`
+
+`w` lists logged in users and stats on resource usage.
+
+Lists users processes: `pgrep -l -u bob`
+
+`pstree` views process tree for parent process or single user. Root parent process can be killed to kill all children in tree. 
+
+### monitoring process
+
+*load average* is rough gauge of pending system resource requests and if load is going up or down.
+*load number* is collected every 5 seconds from processes in runnable and uninterruptible states. load number is reported as moving average for last 1, 5, and 15 minutes. These are the last three numbers in `uptime`. 
+
+## Services and Daemons
+
+`systemd` daemon manages service startup and resources at boot time and when system is running. By convention, daemon names end in `d`. 
+
+A *service* is one or more daemons. `oneshot` changes to the system such as starting or stopping a service need not leave a daemon afterward. 
+
+`systemd` has PID 1.
+
+Improvements over the old init scripts:
+- parallization, so boots up faster
+- on-demand daemon starting without needed a separate service
+- automatic service dependency management. Ie, don't run a network service if the network is down.
+- track related processes by control groups (containers!!)
+
+Systemd objects are managed by *units*. 
+- `.service` units are system services to start frequently run daemons like webservers
+- `.socket` units are interprocess communication (IPC) sockets. If client connects to socket, then systemd starts associated daemon and connects them.
+- `.path` units are activated by file system changes
+
+`systemctl` manages units. 
+Display unit types with `systemctl -t help`
+List all currently loaded service units: `systemctl list-units --type=service`
+List all unit files: `systemctl list-unit-files`
+
+`systemctl status name.type` to view status of a unit. If type is ommitted, shows service unit.
+
+Verify status with 
+
+`systemctl is-active some-service.service`
+
+`systemctl is-enabled some-service.service`
+
+`systemctl is-failed some-service.service`
+
+To list all failed units: `systemctl --failed --type=service`
+
+## Controlling System Services
+
+### Starting and Stopping
+
+To start:
+`systemctl start some-service.service` or `systemctl start some-service`
+
+To stop: `systemctl stop some-service`
+
+To restart `systemctl restart some-service`
+
+To reload configuration of service without restart: `systemctl reload some-service`
+
+If you're not sure if service even has config files: `systemctl reload-or-restart some-service`
+
+### Unit Dependencies
+
+systemd and systemctl automatically start units when needed as dependencies for other services. To completely disable, remove all dependent units. 
+
+List dependencies with: `systemctl list-dependencies some-service.service`
+
+### Masking/Unmasking service
+
+Masking a service prevents accidentally starting a service that conflicts with another by creating a link in config directories to `/dev/null`. Trying to start masked service will fail.
+
+`systemctl mask serviceA`
+
+To unmask:
+
+`systemctl unmask serviceA`
+
+### Start Service at Boot
+
+To start on boot:
+`systemctl enable serviceA`
+
+This creates symlink from service unit file in `/usr/lib/system/system` to where `systemd` looksfor files: `/etc/systemd/system/some-service-name.target.wants`
+
+This does not actually start the service. Be sure to run `systemctl start` and `systemctl enable` together.
+
+## Managing SSH
+
+When user connects to ssh server, `ssh` client checks for public key in known hosts file `/etc/ssh/ssh_known_hosts` or `~/.ssh/known_hosts
+
+If match on hostname, then client compares public key to what received from ssh server. 
+If those don't match, then network could be hijacked or server compromised. User must confirm to continue. 
+Set `StrictHostKeyChecking` to `yes` in ~/.ssh/config` or `/etc/ssh/ssh_config` to always abort when keys don't match.
+
+If hostname does not have a key `known_hosts` then user must confirm to continue and then an entry will be added for that host to the file.
+
+To update the key for a host, update the third field in the `known_hosts` file to match the appropiate key for that host. You can find the public key for a host in its `/etc/ssh/` dir ending in `.pub` .
+
+### key based auth
+
+`ssh-keygen` generates public and private keys to `~/.ssh/id_rsa` and `~/.ssh/id_rsa.pub`
+
+If you overwrite existing key files, then you will need to replace on all servers currently logged with those keys. 
+
+If you don't set a password for the keys, then anyone with your private key file could login as you. If you do set a password, then you'll have to enter a password for the keys (not the host) each time you login. 
+
+Share the public key with host with `ssh-copy-id`.
+
+`ssh-agent` caches the password so you only have to enter it once per session. It prints shell commands to set environment variables. `eval $(ssh-agent)` with execute the shell comands and display PID of ssh-agent running process. Once running, use `ssh-add` to load the ssh private keys into memory. 
+
+You can use the `-i` flag to specify a non-default private key.
+`ssh -i .ssh/non-default-key user@example.com`
+
+### customize OpenSSH service config
+
+OpenSSH service is daemon `sshd` configed with `/etc/ssh/sshd_config`.
+
+#### Prohibit root ssh logins
+
+`PermitRootLogin	no`
+
+or to only allow with private key based logins,
+
+`PermitRootLogin	without-password`
+
+Reload the server: `systemctl reload ssh`
+
+#### Private key only logins
+
+`PasswordAuthentication		no`
+
+Reload the server: `systemctl reload ssh`
 
