@@ -549,4 +549,95 @@ Change the `Storage` param in `/etc/systemd/journald.conf` . Options are:
 `chronyc` is the client to the `chronyd` daemon. To test the NTP changes, use `chronyc sources -v`
 
 
+## Networking
+
+To Do when more awake
+
+## Archiving and transferring files
+
+
+### archiving
+
+`tar`
+
+`-c`, `--create` 
+
+`-x`, `--extract`
+
+`-t`, `--list`
+
+`-v`, `--verbose`
+
+`-f`, `--file=` filename, must be provided of archive to use or create
+
+`-p`, `--preserve-permissions`
+
+`-z`, `--gzip` use gzip compression to create/use `.tar.gz`
+
+`-j`, `--bzip2` use bzip2 compression to create/use `.tar.bz2`. Better compression.
+
+`-J`, `--xz` xz compression `.tar.xz`, even bettern than bz2 (!!)
+
+`--xattrs` to save extended attributes like ACL or SELinux permissions
+
+To create a tar file: 
+
+`tar -cf archive.tar file1 file2`
+
+`tar -cf archiveOfDir.tar fileDir/`
+
+To extract
+
+`tar -xf someArchive.tar`
+
+To create compressed:
+
+`tar -czf backup.bz bigDir/`
+
+To verify:
+
+`tar -tzf backup.bz`
+
+To extract (don't forget to create new dir before unzipping):
+
+`tar -xzf backup.bz`
+
+### Transferring
+
+Copy from here to there:
+`scp [target files and dirs]+ user@hostname:/destination/dir`
+
+Copy from there to here:
+`scp [user@hostname:/target/dir/targetfile /local/destination/dir`
+
+Copy remote directory recursively with `-r`:
+`scp -r [user@hostname:/target/dir/targetfile /local/destination/dir`
+
+Use `sftp` to interactively upload and download from remote server.
+`sftp user@hostname`
+
+Download a file: `sftp> get fileName`
+
+Upload a file: `sftp> put reliative/to/fileName/from/home/dir`
+
+### Synchronizing Files 
+
+`rsync` copies files between systems by only sending the differences. Initially the same as regular copy but much faster after. `-n` to "dryrun" a sync to see which changes are sent and make sure nothing important is overwriten or deleted. `-a` archive mode preserves permissions, timestamps, symbolic links, ownerships, and works on device files as well. Use `-H` to preserve hard links as well.
+
+`rsync -av /source/dir /dest/dir`
+`rsync -av /source/dir user@hostname:/dest/dir`
+
+Note: trailing `/` on source directory to sync only synchronizes to files,  not the directory itself.
+
+
+
+
+
+
+## Installing software
+
+## Filesystem Access
+
+## Server support
+
 
