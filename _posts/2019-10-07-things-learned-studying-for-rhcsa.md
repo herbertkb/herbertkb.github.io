@@ -625,19 +625,289 @@ Upload a file: `sftp> put reliative/to/fileName/from/home/dir`
 `rsync` copies files between systems by only sending the differences. Initially the same as regular copy but much faster after. `-n` to "dryrun" a sync to see which changes are sent and make sure nothing important is overwriten or deleted. `-a` archive mode preserves permissions, timestamps, symbolic links, ownerships, and works on device files as well. Use `-H` to preserve hard links as well.
 
 `rsync -av /source/dir /dest/dir`
+
 `rsync -av /source/dir user@hostname:/dest/dir`
 
 Note: trailing `/` on source directory to sync only synchronizes to files,  not the directory itself.
 
-
-
-
-
-
 ## Installing software
+
+`subscription-manager` to register your system with Red Hat support and unock secret bonus levels.
+
+Entitlement certifications show that system has been subscribed to support. 
+
+`/etc/pki/product`	which Red Hat products installed
+`/etc/pki/consumer`	which Red Hat account is registered
+`/etc/pki/entitlement`	which Red Hat subscriptions are attached to system
+
+Usually, one one version of a package can be installed at a time, but if the package is designed so there is no conflicting file names, then multiple versions can be installed. See `kernel` and (maybe?) `java` and `python` with their version directories.
+
+### rpm tricks
+
+`rpm` for low level info on package files and installed packages. Use `-p` to refer to a package file, and not the installed package database. 
+
+Queries
+
+`rpm -q [select options] [query options]`
+
+`rpm -qa` list all installed packages
+
+`rpm -qf FILENAME` which package installed FILENAME
+
+`rpm -q package-name` which version of `package-name` is installed
+
+`rpm -qi package-name` more detailed info
+
+`rpm -ql package-name` list files installed by package
+
+`rpm -qc package-name` list just config files for package
+
+`rpm -qc package-name` list just documentation files for package
+
+`rpm -q --scripts package-name` displays any shell scripts run when package installed, removed
+
+`rpm -q --changelog package-name` changes in package
+
+Use `cpio` and `rpm2cpio` if you want to get files out of an rpm without installing it.
+
+Extract all files:
+`$ rpm2cpio somepackage-1.0.0.amiga.rpm | cpio -id` 
+
+Extract some or all:
+
+`$ rpm2cpio somepackage-1.0.0.amiga.rpm | cpio -id "*txt"` 
+
+`$ rpm2cpio somepackage-1.0.0.amiga.rpm | cpio -id "README.txt"` 
+
+### yum tricks
+
+`yum help` to show everything I'm going to type about anyway.
+
+`yum list 'cow*'` to list installed and available packages matching pattern
+
+`yum search KEYWORD` to search in name and summary fields
+
+`yum search all KEYWORD` to search in name, summary, and description
+
+`yum info package-name` to get details on single package
+
+`yum provides /path/name` to find which package created the file path
+
+`sudo yum update` to update all packages
+
+`yum update kernel` to actually install the latest kernel. `uname -r` to verify version. 
+
+`yum group list` to see available package groups
+
+`yum group list hidden` to see package groups hidden by environment groups
+
+`yum group info "Group Name"` for mandatory, default and optional packages
+
+`yum group install "Group Name"` to install all mandatory and default packages in group
+
+#### Package transaction history
+
+`/var/log/dnf.rpm.log` logs all install and remove transactions
+
+`yum history` summarizes the log
+
+`yum history undo` reverses a transaction by ID number
+
+### Yum Repositories
+
+`yum repolist all` to view all default available repos
+
+`yum-config-manager --enable some-repo-name-rps` to enable/disable a repo
+
+#### Third Party Repo
+
+New repos added by creating a file in `/etc/yum.repos.d/` ending in `.repo` containing the repo URL, whether to use GPG for validting package signatures, and the URL to the GPG key to use. 
+Automate with `yum-config-manager`
+
+`yum-config-manager --add-repo="http://dl.example.org/path/to/some/repo/"
+
+Then edit the file to include the GPG key if available. Best practice is to download the file to `/etc/pki/rpm-gpg/` and edit the repo file to have line `gpgkey=file:///etc/pki/rpm-gpg/REPO-GPG-KEY`
+
+You can also add new repos with an `rpm` package.
+
+`rpm --import http://dl.example.org/path/to/gpg/REPO-GPG-KEY`
+
+`yum install http://dl.example.org/path/to/some/repo.noarch.rpm`
+
+To disable searching a repository, but leave it defined, set `enabled=0` in its config. 
+
+### Package Module Streams
+
+*Modularity* lets a single repo host many versions of a package and its dependencies. Previously, managing multiple versions required separate repos for each. 
+
+
+RHEL8 has two main software repos: 
+
+BaseOS: core OS content as rpm packages. Traditional component lifecycle.
+
+AppStream: content with varying lifecycles as both modules and packages. Some required components and many applications which were previously in Red Hat Software Collections and third party repos. 
+
+Module is a set of packages working together, usually a specific large application or programming language. Typically includes the main application, dependency libraries, documentation, and help utilities. 
+
+Module Streams each support a different version of the module, and can be updated independently. For each module, only one stream can be enabled at a time to provide packages for installation. 
+
+Module Profiles are lists of certain packages to be installed for specific cases, ie. minimal, server, client, development, high availability, etc. If not specified, then module will provide default profile. 
+
+`yum module list` to list available modules
+
+`yum module list nodejs` to list streams for specific modules
+
+`yum module info nodejs` to get details of module
+
+`yum module info --profile nodejs:12` to see which packages are installed by which profile in module version
+
+Install and update like normal packages and groups
+
+`sudo yum module install nodejs`
+
+or `yum install @nodejs`, the `@` denotes a module name
+
+Verify module streams and profile with `module list nodejs`
+
+To remove an installed module:
+`yum module remove nodejs`
+
+After removing, the module stream is still enabled.
+
+To disable module stream:
+`yum module disable nodejs`
+
+Switching a module stream implies upgrading or downgrading to a different version. First remove all the modules proivded by that modules stream. This removes all the packages installed by that module and their dependencies. 
+
+`sudo yum module remove postgresql`
+
+`sudo yum module reset postgresql`
+
+`sudo yum module install postgreql:10`
 
 ## Filesystem Access
 
+Mostly review, looks like there's more device types than 15 years ago. 
+
+```
+/dev/sda, /dev/sdb, ...		SATA/SAS/USB storage
+/dev/vda, /dev/vdb, ...		virtio-blk paravirtualized storage (some VMs)
+/dev/nvme0, /dev/nvme1, ...	NVM storage (SSDs)
+/dev/mmcblk0, /dev/mmcblk1, ...	SD/MMC/eMMC storage (SD cards)
+```
+
+Some VMs use `virtio-scsi` storage which mounts as `/dev/sd*` names
+
+(*fbroke formatting)
+
+LVM combines several block devices and partitions into *volume groups*, which can be split nto *logical volumes*, the equivalent of physical disk partitions. 
+
+LVM makes a directory under `/dev` for the volume group and a file for each logical volume. So for volume group `vg` and logical volume `lvhome`, the logical device file name is `/dev/vg/lvhome`. 
+
+Don't forget the `df -h` command to overview all mounted disks and space usage.
+
+Use `du -h` for space usage on a directory tree, recursively.
+
+### Mounting and Umounting 
+
+`lsblk` to see details for block devices. Man, this is much nicer than `fdisk -l`. And it supprts LVM!
+
+`# mount /dev/vdb1 /mnt/data` To mount a virtual device `/dev/vdb1` to *empty dir* `/mnt/data`. Don't forget to create the empty dir before mounting!
+
+However, device names vary by the order in which added to system, may var between reboots. Safer to use UUID of filesystem on devices. 
+
+`lsblk -fp` to list full path, UUID, and type of file system 
+
+`# mount UUID="asfdas-asfasf-asdffasf-asfaf" /mnt/data` to mount by UUID.
+
+If logged into most desktop environments, they will automount removable storage media at `/run/media/USERNAME/LABEL` where `USERNAME` is your username and `LABEL` is what what given to the filesystem when created. 
+
+Always unmount the device manually before removing.
+
+`umount /mnt/data`
+
+Cannot unmount if any processes are using it. 
+
+`lsof /mnt/data` to see all processes using a directory. 
+
+Don't forget to `cd`out of a directory you are trying to `umount`!
+
+### Locatin file tricks
+
+`locate` uses a pregenerated index, `mlocate`, to instantly lookup filenames
+
+Normally `mlocate` is regenerated daily, but can be manually regenerated with `updatedb`
+
+`find` crawls through heirarchy in real time from some starting dir.
+
+`find / -name cowsayd_config` to search entire system for `cowsayd_config`
+
+`find / -name *cowsay*` to search for any files with `cowsay` in name`
+
+`find / -iname *message*` to search names, ignoring case
+
+`find -user homer` to search by user
+
+`find -uid 1001` to search by UID
+
+`find -gid 1001` to search by GID
+
+`find / -user home -group moesbar`
+
+`find /home -perm 764` to search for files with rwxrw-r-- permission in /home
+
+#### Find files by size
+`find -size 100M` find files approx 10M
+
+`find -size +100M` find files greater than 10G
+
+`find -size -100M` find files less than 10k
+
+#### Find files by modification time
+
+`-mmin` followed by minutes and `+` or `-` modifier
+
+`find -mmin 120` files last modified 120 minutes ago
+
+`find -mmin +240` find files last modified over 4 hours ago
+
+`find -mmin -30` find files last modified less than 30 min ago
+
+#### Find by type
+
+`find -type d` to list directories
+
+`find -type l` to list soft links
+
+`find -type f` to list regular files
+
+`find /dev -type b` to list block devices
+
+`find / -type f -links +1` find all files with more than 1 hard link
+
 ## Server support
+
+Web Console to monitor system in a browser, based on Cockpit project.
+
+```
+sudo yum install cockpit
+sudo systemctl enable --now cockpit.socket
+
+# open firewall if needed
+sudo firewall-cmd --add-service=cockpit --permanent
+sudo firewall-cmd --reload
+```
+
+Then login with browser to `https://servernam:9090`
+
+
+You can also use the Red Hat Support Tool to search for help and file bug reports.
+
+`redhat-support-tool`.
+
+For automatic detection of issues, register your system with Red Hat Insights
+
+`insights-client --register`
+
 
 
