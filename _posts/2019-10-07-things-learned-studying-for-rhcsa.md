@@ -1082,11 +1082,272 @@ For automatic detection of issues, register your system with Red Hat Insights
 
 -----------------------------------------------------------
 
-## Command line Productivity
+## Command line tricks
+
+The `#!` at the beginning of a script is actually a "magic number" to indicate file type. See `magic(5)` for more. 
+
+### bash loops
+
+```bash
+for VARIABLE in LIST; do
+    COMMAND VARIABLE
+done
+```
+
+Examples
+
+`for HOST in host1 host2 host3; do echo $HOST; done`
+
+`for HOST in host{1,2,3}; do echo $HOST; done`
+
+`for HOST in host{1..3}; do echo $HOST; done`
+
+`for FILE in file*; do ls $FILE; done` uses glob to make list from `filea fileb filec` in dir
+
+`for PACKAGE in $(rpm -qa | grep kernel); do echo "$PACKAGE installed on $(date -d @$(rpm -q --qf "%{INSTALLTIME}\n" $PACKAGE))"; done`
+
+`for EVEN in $(seq 2 2 10); do echo "$EVEN"; done`
+
+#### exit codes
+
+`exit` to leave script early. 
+
+`exit 0` to finish without error
+
+`exit 1` (or any other number 1-255) to finish with error
+
+Error code is return to parent process, which stores it in `?` variable. This can be accessed with `$?`
+
+```
+$ false
+$ echo $?
+1
+$ true
+$ echo $?
+0
+```
+
+#### conditionals
+
+`test <TEST EXPRESSION>` checks a condition and stores value to `$?`, where `0` means test passed and `1` is test failed.
+
+`test 1 -gt 0 ; echo $?`
+
+`test 0 -gt 1 ; echo $?`
+
+Bash provides builtin syntax `[ <TEST EXPRESSION ]` and more recently `[[ <TEST EXPRESSION> ]]` with glob pattern matching and regex pattern matching.
+
+Bash's command parser is based on spaces, so don't forget to space out the brackets and other operators!
+
+#### Bash if/then/else
+
+```
+if <condition>; then
+	<statements>
+fi
+```
+
+```
+if <condition>; then
+	<statements>
+	else
+	<statements>
+fi
+```
+
+```
+if <condition>; then
+		<statements>
+	elif <condition>; then
+		<statements>
+	else
+		<statements>
+fi
+```
+
+### Regex 
+
+Use `man egex` as reference because I'm not typing all that out if I already know 95% of it. 
 
 ## Schedule future tasks
 
-## Performance tuning
+### scheduling deferred job
+
+`at` package provides `atd` daemon and related tools `at`, `atq`. Installed by defualt.
+
+Use `at TIMESPEC` to schedule jobs. 26 queues `a` to `z` arranged by priority with `z` being lowest. See `/usr/share/doc/at/timespec` for grammar. 
+
+Examples:
+
+`at now + 1 min`
+
+`at teatime tomorrow`
+
+`at noon + 4 days`
+
+`at 02:00pm`
+
+`at 15:59`
+
+`at 6pm august 7 2029`
+
+Use `atq` to view pending jobs or `at -l`
+
+Use `at -c JOBNUMBER` to view commands the will run for job
+
+Use `atrm JOBNUMBER` to remove job with JOBNUMBER
+
+### scheduling recurring jobs
+
+`crond` enabled and started by default for recurring jobs. 
+`crond` reads user cron files and a set of system wide files for when jobs run. 
+By default, `crond` will try to email output or errors from jobs when they run, but the output can instead be redirected to other files. 
+
+Users should use `crontab` to manage jobs instead of writing cron files directly.
+
+`crontab -i` list jobs for current user
+
+`crontab -r` remove all jobs for current user
+
+`crontab -e` edit jobs for user. 
+
+`crontab filename` remove all jobs, replace with contents of *filename* or stdin
+
+`roout` can use `crontab -u` to schedule jobs as a different user, but shouldn't use this to edit system cron files. 
+
+#### Job format
+
+fields in this order: minutes, hours, day of month, month, day of week, command to run
+
+`*` for don't care/always
+
+a number for minutes hours, dates, or day of week with Sunday being 0, Monday being 1, etc, and Sunday back at 7.
+
+`x-y` range from x to y, inclusive.
+
+`x,y` for lists. Can also include ranges. Ie. `2, 4, 8-10, 12` in the minutes column for job to  run at 2, 4, 8, 9, 10, and 12 minutes past the hour.
+
+`*/x` for an interval of x. So `*/5` in minutes column means run the job every 5 minutes. 
+
+Examples:
+
+`0 0 12 25 * /usr/local/bin/merry_christmas` to run on christmass day every year
+
+`*/5 9-17 * Jan-Mar Mon-Fri echo "do your taxes!"` 
+
+`0 9 * * 1-5 mutt -s "Morning boss" boss@example.com % Hey there, just checking in` to send email every morning. 
+
+You can always cat `/etc/crontab` for examples and `man crontabs`. 
+
+System jobs should be in `/etc/crontab` or `/etc/cron.d`. Good practice to create new files to add under `/etc/cron.d` so they aren't overwritten by package updates to `/etc/crontab`.
+
+Special dirs for scripts to run every hour, day, week, month: `/etc/cron.hourly/`,`/etc/cron.daily/`,`/etc/cron.weekly/`,`/etc/cron.monthly/`. Make sure scripts are executable.
+
+
+The `/etc/cron.d/0hourly` file runs the `/etc/cron.d/hourly` scripts using the `run-parts` command. 
+
+`/etc/anacrontab` calls `run-parts` for the daily, weekly, and monthly tasks. `/etc/anacrontab` makes sure that jobs aren't skipped if machine is off or hibernating and run as soon as system is back up. You can adjust the delay after rebooting to run the tasks with `Delay n minutes` param in `/etc/anacrontab`. 
+`START_HOURS_RANGE` param sets a time interval so that resumed jobs are not restarted outside of that range and must wait until next day. 
+
+#### Systemd Timer
+
+systemd *timer units* activates other units (usually a service) with matching unit name.  
+
+For example, `sysstat` package provides `sysstat-collect.timer` to collect system stats every 10 min. Configed with `/usr/lib/systemd/system/systat-collect.timer`. The every 10 min is set by `[Timer]` param `OnCalendar` which can be changed for much more specific timers. 
+`OnUnitActiveSec` can delay the unit to activate. 
+
+After edits, reload the config with `systemctl daemon-reload`
+Then activate the timer unit: `systemctl enable --now <unitnae>.timer`
+
+#### Managing temp files
+
+`systemd-tmpfiles` helps purge old temp files to save space and clear outdated data.
+
+On startup, `systemd` runs `systemd-tmpfiles --create --remove`  to clear any files marked for deletion in `/run/tmpfiles.d/*.conf`, `/usr/lib/tmpfiles.d/*.conf`, and `/etc/tmpfiles.d/*.conf` and touch/chown any files marked for creation with correct permissions. 
+
+`systemd-tmpfiles-clean.timer` triggers `systemd-tmpfiles-clean.service` to run `systemd-tmpfiles --clean` to regular clear out old files.
+
+Config the `[Timer]` section of these timer units to adjust when to run. 
+
+```
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1d
+```
+
+This config will run the the timer 15 min after boot, then again 24 hours since last activation.
+
+After changing, always run `systemctl daemon-reload` to reload the config and enable the timer with `systemctl enable --now systemd-tmpfiles-clean.timer`
+
+#### manual cleaning
+
+`systemd-tmpfiles --clean` and `systemd-tmpfile --create` use same config, but `--clean` purges all files which haven't been accessed/modified more recently than as configged. 
+
+Seven columns: type, path, mode, uid, gid, age, and argument. Type is which action to take. `d` to create a dir, `z` to recursivly restore SELinux context and file permissions and ownership. 
+
+`d /run/systemd/seats 0755 root root -`
+Create the `/run/systemd/seats/ dir with user and owner `root` and permissions `0755`
+
+`D /home/studen 0700 student student 1d`
+Create the `/home/student` dir. If it already exists, purge its contents. When `--clean` is run, remove all files not touched in more than one day. 
+
+`L /run/fstablink - root root - /etc/fstab` create symbolic link `/run/fstablink` to `/etc/fstab`. Never automatically purge. 
+
+#### config file precedence
+
+`/usr/lib/tmpfiles.d/` are provided by RPM packages and shouldn't be edited manully. 
+
+`/run/tmpfiles.d` are already volative and used by daemons to manage their own runtime temp files. 
+
+`/etc/tmpfiles.d/` meant for admin to config custom temp locations and override defaults. 
+
+`/etc` has highest priority, then `/run` then `/usr`. So you can overrite a vendors config by copying from `/usr/lib/tmpfiles.d/` to `/etc/tmpfiles.d` and changing it there   
+
+### Performance tuning
+
+`tuned` applies system settings according to profile to optimize for specific requirements. 
+
+Static tuning: `tuned` applies kernel params for overall performance and does not change in response to activity. 
+
+Dynamic tuning: `tuned` monitors system and adjusts in response to behavior changes. 
+
+Install and enable
+```
+yum install tuned
+systemctl enable --now tuned
+```
+
+`tuned-adm` helps change `tuned` settings. 
+
+`tuned-adm active` to check current profile
+
+`tuned-adm list` to list available profiles
+
+`tuned-adm profilename` to switch to profile
+
+`tuned-adm recomend` to recommend a tuning profile. This sets the  default after installation. 
+
+`tuned-adm off` to revert tuned changes by current profile. 
+
+In Web Console, can also adjust under System -> Performance Profile
+
+### Process Scheduling
+
+Nice levels range from -20 (highest priority) to 19 (lowest priority) with 0 as default. Niceness refers to how willing a process is to cede CPU time to other processes. 
+
+Only `root` can *reduce* a process nice level. Normal users can *increase* the nice levels of their own processes. 
+
+`top` and `ps` can display nice levels. In `top`, the nice levels are mapped from -20..19 to 0..40. This `ps` command gives nice levels by process:
+
+`ps axo pid,comm,nice --sort=-nice`
+
+`nice command` start `command` with nice level 10 by default. 
+
+`nice -n15 command` to start `command` with nice level 15. 
+
+`renice` can change nice level of active process, using its PID
+
+`renice -n 19 1234`
 
 ## ACLs to control file access
 
