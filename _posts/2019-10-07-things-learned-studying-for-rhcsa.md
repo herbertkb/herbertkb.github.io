@@ -14,6 +14,8 @@ Systemd kinda threw everything I learned playing with Arch and Gentoo out the wi
 
 Some of these notes will be really spare for things I (mostly) already know. If you see a paragraph, its for something I needed a refresher on.
 
+I'm taking a spaced repetition approach. Going to try to read all the way through first without doing labs and exercises, then going back and doing all the labs. This will freshen it my mind and help reinforce the "finger thinking" for the commands and tasks. But time is running short.
+
 # Command line basics
 
 `! string` shell builtin expands to last command beginning with `string`.
@@ -551,11 +553,180 @@ Change the `Storage` param in `/etc/systemd/journald.conf` . Options are:
 
 ## Networking
 
-To Do when more awake
+### Concepts
+
+#### TCP/IP Layers
+
+- Applicaton: protocols for apps. Ie: ssh, https, nfs, cifs, smtp, etc.
+
+- Transport: TCP is reliable, with connections. UDP is unreliable, connectionless. Applications use tcp and udp ports, you can find a list in `/etc/services`.
+
+- Internet/Network: IPv4 and IPv6 protocols route packets between hosts on different networks based on the host IP address and a prefix for the network address. 
+
+- Link / Media Access: physical media. Ethernel (802.3) and Wireless WLAN (802.11). Hardware MAC address are destinations on local network segments
+
+
+#### Network Interface Names
+
+`eth0` and such are obsolete now because the numbering system was based on when devices were attached, whcih could vary between boots (PCI doesn't have an order) and normal usage. 
+
+New names start with interface type
+```
+en	ethernet
+wl	WLAN
+ww	WWAN
+```
+
+Next are codes based on firmware or PCI topology
+
+```
+o N	on-board device, firmware index number N	eno1	onboard ethernet device 1	
+s N	PCI hot-plug slot N				ens3	hotplug device 3
+pMsN	PCI on bus M, slot N				wlp4s0	wireless bus 4, slot 0
+pXsYfZ	multifunction cards, fZ denotes function #	enp0s1f1
+```
+
+#### IPv4 Networking
+
+IP address is 32 bit number, broken into 4 8-bit octets. Address divided into host part and network part. All hosts on same network share same network part. Host part uniqly IDs each host on network. 
+
+Size of networks are variable, so netmasks used see which part of IP address is the network part. Netmask is binary ANDed with IP address to get the network address.  
+
+#### IPv6 Networking
+
+128 bit number, broken into 8 colon separated groups of 4-bit nibbles. `::` denotes repeated `0` nibbles.  When using an IPv6 address with a port, always put the address in brackets. 
+`[20:10:de:ad:f1:54:0:7]:80`
+
+Two parts: network prefix and interace ID. Unlike IPv4 variable masks, IPv6 has a standard `/64` subnet mask. This split the address in half, the first part is the network prefix and the later part is the interface id. 
+
+Often network provide gives `/48` as prefix, so remaining `/16` can be used for local subnets. 
+
+Special Address and Networks
+```
+::1/128		localhost	as 127.0.0.1/8, loopback
+::		unspecified	as 0.0.0.0, listening to all IP address
+::/0		default route	default route for router to send to
+2000::/3	global unicast
+fd00::/8	unique local
+fe80::/10	link local
+ff00::/8	multicast
+```
+
+Link local addresses are unroutable, only for hosts on specific network link. Every interface automatically have link-local address to `fe80::/64`. The interface id portion of the address is unique by using the MAC address to help form it. 
+
+To use it, provide the interface name as the scope identifier at end of address, denoted with `%`. 
+
+For example, to `fe80::121:dead::1%eno0`
+
+Multicast address allow sending to multiple specific hosts. No broadcast address in IPv6, so multicast more common in IPv6. 
+
+#### host names
+
+Dealing with ip addresses are a pain, so always name them in `/dev/hosts`
+
+### Validating Network Configs
+
+`ip link show` to list all network interfaces
+
+`ip addr show eno1` to show details for interface `eno1`
+
+`ip -s link show eno0` to show network performance stats
+
+`ping` and new `ping6` to test connection to hosts, ip addresses. Must include scope identifier for link local addresses
+
+`ip route` to show routing table
+
+`ip -6 route` to show IPv6 routing table
+
+`tracepath` and `tracepath6` to show hops to destination. Similar to `traceroute` and `traceroute6`. 
+
+`ss` to display socket statistics, replacement for `netstat`. 
+
+To show all TCP sockets: `ss -ta`
+
+### Configuring Networking
+
+NetworkManager is daemon to manage and monitor network settings. Tools interact with NetworkManager and save config files to `/etc/sysconfig/network-scripts`
+
+A *device* is network interface. 
+
+A *connection* is collection of settings for a device with a unique name.
+Only one connection active for device at a time. Connections may be shared by devices, or same device can switch connections. For example, when swtching form a home wifi to work wifi to public wifi.
+`nmcli` creates and edits connection files. 
+
+`nmcli dev status` to show status for all devices. 
+
+`nmcli con show` to list all connections. `--active` to filter for just active connections. 
+
+`nmcli con add` to add new connection. 
+
+`nmcli con add conn-name my-new-conn type ethernet ifname eno2` 
+creates a new connection named `my-new-conn` for interface `eno2`, creates a new file `/etc/sysconfig/network-scripts/ifcfg-my-new-conn`. This connection gets its IPv4 address from DHCP and autoconnects on startup. It get IPv6 address by listening for router multicasts on local-link. 
+
+`nmcli con add conn-name my-other-conn type ethernet ifname eno2 ipv4.address 192.168.0.5/24 ipv4.gateway 192.168.0.254` creates a `my-other-conn` ethernet connection on `eno2` with static IPv4 address/netmask and default gateway. Autoconnects on startup and saves config to `/etc/sysconfig/network-scripts/ifcfg-my-other-conn`.
+
+`nmcli con add conn-name my-third-conn type ethernet ifname eno2 ipv6.address 2001:db8:0:1::c000:207/64 ipv6.gateway 2001:db8:0:1::1 ipv4.address 192.0.2.7/24 ipv4.gateway 192.0.2.1`
+creates a `my-thid-conn` with static ipv4 and ipv6 address and gateways. 
+
+`nmcli con up some-connection-name` activates the connection `some-connection-name` on the interface its bound to. Note that the connection is activated, not the interface. 
+
+`nmcli dev dis eno1` disconnect interface `eno1` and brings it down. 
+
+`nmcli dev dis eno1` abbreviates the above
+
+`nmcli con down connection-name` usually not the best way because most connections are autoconnecting, so NetworkManager will immediately restart it. 
+
+`nmcli con show connection-name` to show detailed status for connection. Some settings are *static* and set by admin, stored in config files. Others are *active* and not persisted, such as DCHP data. 
+
+`nmcli con mod connection-name` to change settings. Static settings are backed up to that connections config file. 
+
+`nmcli con mod static-eno1 ipv4.address 192.0.2.2./24 ipv4.gateway 192.0.2.254` to update static ip4 address and gateway for connection `static-eno1`
+
+`nmcli con mod static-eno1 ipv6.address 2001::1 pv6.gateway 2001::0` to update static ip6 address and gateway for connection `static-eno1`
+
+When changing a connection from DHCP to static, be sure to change `ipv4.method` from `auto` to `manual` and likewise when changing from SLAAC or DHCPv6 to static, change `ipv6.method` from `auto` or `dhcp` to `manual`.
+
+`nmcli con del static-eno1` to delete connection `static-eno1`. This also disconnects the device and removes config file.
+
+`nmcli con reload` to reload all config files, helpful after hand editing onfig files.
+
+`root` can always make changes with `nmcli`. Users logged in at local consoles or desktop client can also make changes because it implies physical presence and need to update network connections as needed. Regular users `ssh`ed in do not have access to change network settings without root access. 
+
+`nmcli gen permissions` to see what current permissions you have.
+
+### Editing Network Config files
+
+I'm not copying that whole table of config options. Check the docs if you need to do this!
+
+### Configuring Hostname and Name Resolution
+
+`hostname` displays the current host's name
+
+You can update the hostname by editing `/etc/hostname`.
+`hostnamectl` command can update this file and display fully qualified host name. If `/etc/hostname` is missing, it looks up the hostname by reverse DNS. 
+
+`hostnamectl set-hostname host@example.com`
+
+`hostnamectl status`
+
+Name resolution is configed by `/etc/nsswitch.conf` and by default `/etc/hosts` is checked first to map ip addresses to hostnames. 
+
+`getent hosts host-name` can test host name resolution from `/etc/hosts`. 
+
+`/etc/resolv.conf` configs how the hostname query works. `search` followed by a list of short host names to check as DNS server. `nameserver` followed by IP address of nameserver to try. 
+
+NetworkManager can update the `/etc/resolv.conf` with the `nmcli con mod IDNAME +ipv4.dns IP.ADDRESS`
+
+Likewise for IPv6: `nmcli con mod static-eno1 +ipv6.dns 2001:2345::1`
+
+`host HOSTNAME` can test DNS server connection
+
+```
+$ host 8.8.8.8
+8.8.8.8.in-addr.arpa domain name pointer dns.google.
+```
 
 ## Archiving and transferring files
-
-
 ### archiving
 
 `tar`
@@ -909,5 +1080,31 @@ For automatic detection of issues, register your system with Red Hat Insights
 
 `insights-client --register`
 
+-----------------------------------------------------------
 
+## Command line Productivity
+
+## Schedule future tasks
+
+## Performance tuning
+
+## ACLs to control file access
+
+## SELinux Productivity 
+
+## Basic Storage
+
+## Logical Volume Management
+
+## Advanced Storage
+
+## Network Storage
+
+## Booting Up!
+
+## Network Security
+
+## Install RHEL
+
+lmao this is the last chapter? haha, nice.
 
