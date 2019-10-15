@@ -1605,6 +1605,61 @@ Web Console also includes a friendly way to view SELinux reports.
 
 ## Basic Storage
 
+MBR boot scheme is obsolete because 32-bitness limited filesystem sizes to 2 TiB, which is a normal hard drive these days. 
+
+GUID Partition Table (GPT) is new standard for UEFI (Unified Extensible Firmware Interface) devices. 64-bit for logical addresses and up to 128 partitions, from 15 for MBR (at best!). 
+Each disk and partition has a globally unique identifier (GUID) and partition table stored and begining and end for redundany with primary at head of device and secondary at the end. Checksums detect errors in GPT header and partition table.
+
+### Partition editing
+
+`parted` replaces `fdisk`. Takes whole device name as argument and a command. Or leave the command off to start interactive session. Note: commands issued immediately (unlike fdisk which had a sperate apply step) so be careful. 
+
+`parted /dev/sda print` to display partitions on `/dev/sda`.
+
+`parted /dev/sda unit GB print` to display with sizes in gigs. Other unit options: `s` for sectors, `B` for bytes, `MiB` `GiB` `TiB` for powers of 2 sizes, `MB`, `GB` `TB` for SI sizes (powers of 10). 
+
+To write a new partition table, begin with writing a label. Note that writing a label erasing the current partition table. 
+
+`parted /dev/sda mklabel msdos` for MBR label
+
+`parted /dev/sdb mklabel gpt` for GPT label
+
+To create the partitions, you can start `parted /dev/name` without any other args to start interactive session. Or do it all at once:
+
+`parted /dev/sda mkpart primary xfs 2048s 100GB` to create MBR primary partition starting at sector 2048s and continuing for 100GB.
+
+`parted /dev/sda mkpart userdata xfs 2048s 100GB` to create GPT xfs partition named `userdata` starting at sector 2048s and continuing for 100GB.
+
+After updating partition tables, run `udevadm settle` for `udev` daemon to recognize the new partitions and create entries under `/dev`
+
+`parted /dev/sda rm N` to remove partition number `N` from `/dev/sda`
+
+Format the new partition(s) with a filesystem. 
+
+`mkfs.xfs /dev/sda1` to format /dev/sda1 with XFS
+
+`mkfs.ext4 /dev/sdb2` to format /dev/sdb2 with EXT4
+
+Mount with `mount /dev/sda1 /mnt/new/mountpoint`.
+
+Display all mounted partitions with `mount` by itself. 
+
+To persistenly mount after reboot, update `/etc/fstab`. Remember to use the UUID for the partition because device names could vary on startup. Use `lsblk -fs` to scan for device UUIDs. 
+
+First column is device name or UUID. Second column is mount point. Third column is file system type. Fourth column is comma separated list of options. `default` is fine to put here. Fifth column is used by `dump` for backups. Can leave as `0`. Sixth column is used y `fsck` on startup to see if filesystem should be checked. `0` turns off. `1` turns on. `2` starts in parallel. Good practice to start root partition as `1` and other secondary partitions in parallel. 
+
+To verify `/etc/fstab`, use `umount` to first unmount the partition, then `mount /mnt/point` which checks `/etc/fstab` to remount. Or use `findmnt --verify`. A bad `/etc/fstab` can make the system unbootable so always check.  
+
+Always run `systemctl daemon-reload` to register the changes in systemd.
+
+### Swap Space
+
+To create a new swap partition, create a new partition but set the type to `linux-swap`. Load it with `udevadm settle`. Format it for swap usage with `mkswap /dev/sda2` where `/dev/sda2` is the new swap partition. Use `swapon /dev/sda2` to activate it. You can see currentl swap usage with `free`. You can turn off the swap aprtition with `swapoff`, which will try to make any active memory pages to another swap device first. If it cannot, the swap space stays active. 
+
+To keep the swap partition persistently, add it to the `/etc/fstab` with mount point `swap` and filesystem `swap`. Always run `systemctl daemon-reload` to register the changes in systemd.
+
+If you have multiple swap partitions, assign priorty with the `pri=` option in `/etc/fstab`. Default priority is `-2` and higher priorities used up first. `swapon --show` can display the current swap partition priorities. If partitions have same priority, pages are assigned round robin.  
+
 
 
 ## Logical Volume Management
