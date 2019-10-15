@@ -1660,13 +1660,248 @@ To keep the swap partition persistently, add it to the `/etc/fstab` with mount p
 
 If you have multiple swap partitions, assign priorty with the `pri=` option in `/etc/fstab`. Default priority is `-2` and higher priorities used up first. `swapon --show` can display the current swap partition priorities. If partitions have same priority, pages are assigned round robin.  
 
-
-
 ## Logical Volume Management
+
+*Physical devices* are block storage devices. Could be partitions or whole disks. Must be initialzed as LVM physical volume first. Whole disk will be used if specified. You can scan for devices with `lsblk`, or `cat /proc/partitions`.
+
+*Phyisical volumes (PV)* are partitions formatted for LVM. Segmented into same sized *physical extents* (PEs). Scan with `pvdisplay`.
+
+*Volume Groups (VGs)* are pools of one or more PVs. PV can only go to one VG. Scan with `vgdisplay`.
+
+*Logical Volume (LV)* is like a logical partition of a volume group It can be resized with remainning free PEs in the VG. *Logical extents (LEs)* map directly to PEs. Mirroring maps a LE to 2 or more PEs. Scan with `lvdisplay`.
+
+### Steps to create a logical volume
+
+1. Create a partition with `parted` or `fdisk` and set the type to `Linux LVM` or `0x8e`. Use `partprobe` to register the new partition in the kernel. You can scan for partions with `lsblk`, or `cat /proc/partitions`
+
+2. Make the partition a PV with `pvcreate`. Ex. `pvcreate /dev/sda2`
+
+3. Create a volume group with `vgcreate vg-name /dev/sda2 /dev/sda3`
+
+4. Create a logical volume with `lvcreate -n lv-name -L 20G vg-name` to create an LV named `lv-name` on VG `vg-name` of 20 GiB size. Use `-l` to assign number of PEs for size. 
+
+5. Format with filesystem such as with `mkfs.xfs` or `mkfs.ext4` or `mkswap`. For example, `mkfs -t xfs /dev/vg-name/lv-name`
+
+6. Mount `mount /dev/vg-name/lv-name /mnt/stuff`
+
+7. Add to fstab: `/dev/vg-name/lv-name /nmt/stuff defaults 1 2`. Don't need to provide UUID because LVMs are already uniquely IDed with UUID by LVM itself.
+
+### Removing LVM
+
+1. Unmount the volume. `umount /mnt/stuff` or `umount /dev/vg-name/lv-name`
+
+2. `lvremove /dev/vg-name/lv-name` to delete the logical volume. This frees the PEs mapped to the LEs for this volume and allow to be re=used for other LVs in same VG. 
+
+3. `vgremove /dev/vg-name` to delete a VG and free all its PEs for other VGs to use.
+
+4. `pvremove /dev/sda2  /dev/sda3` to delete PV metadata from the partitions
+
+### Extending LVM
+
+#### Expanding a VG
+
+Assume a new phyical device available at `/dev/sdb` of 500GB. 
+
+First we create the new physical volume
+
+`parted -s /dev/sdb set 1 lvm on`
+
+`pvcreate /dev/sdb1`
+
+Then we extend the VG to include the new PV.
+
+`vgextend vg-name /dev/sdb1`
+
+Validate with `vgdisplay`.
+
+#### Shrinking a VG
+
+To shrink a VG by removing a PV, first we need to move all the data off that PV to other PVs in the VG. This assumes enough free PEs in the other PVs. 
+
+`pvmove /dev/sdb1`
+
+Then remove the PV from the VG
+
+`vgreduce /dev/sdb1`
+
+#### Expanding an LV
+
+1. first verify that enough free PEs are in VG with `vgdisplay`
+
+2. `lvextend -L +500G /dev/vg-name/lv-name` to expand `lv-name` by 500GB. If the `+` were missing, then the total size of `lv-name` would be set to 500GB. 
+
+3. extend the filesystem on the LV to the rest of its new PEs.
+	
+	for XFS: `xfs_grow /mnt/stuff`
+
+	for ext4: `resizefs /dev/vg-name/lv-name`
+
+#### Extending a swap space LV
+
+1. `vgdisplay vg-name` to verify enough PEs are available.
+
+2. Deactivate swap space. Swap cannot be extended "live". `swapoff -v /dev/vg-name/lv-swap`
+
+3. Extend the logical volume: `lvextend /dev/vg-name/lv-swap -l 100`
+
+4. Reformat the LV with swap: `mkswap /dev/vg-name/lv-swap`
+
+5. Reactivate the swap space: `swapon -va /dev/vg-name/lv-swap`
 
 ## Advanced Storage
 
+### Multilayered Storage with Stratis
+
+Stratis manages a pool of storage devices to create and manage volumes. Built on existing LVM and XFS tooling. File systems are "thinly provisioned" on pools. They do not have a fixed size or preallocate space. Stratis manages hidden LVM volumes to expand the filesystems as needed. Size of filesystem is how many blocks of storage currently being used. Space available is remaining blocks in the entire pool. Multiple filesystems cna be in same pool, but filesystems can also reserve extra space. 
+
+Stratis uses metadata on the filesystems to function. Do not manage these filesystems outside of Stratis or you will overwrite/break the metadata and just have a bad day.
+
+Devices in a pool can be in either data tier for large devices like hard disks or cache tier for high I/O devices like SSDs. 
+
+#### Managing
+
+Install Stratis `yum install stratis-cli stratisd`
+
+Enable: `systemctl enable --now stratisd`
+
+Operations
+
+- Create device pools: `stratis pool create pool-name/dev/sda`
+
+	Pools are subdirs under `/stratis`
+
+- View pools: `stratis pool list`
+
+- Add more devices to pool: `stratis pool add-data pool-name/dev/sdb`
+
+- View block devices in pool: `stratis blockdev list pool-name`
+
+- Create a new filesystem in pool: `stratis filesystem create pool-name filesystem-name`
+
+	Filesystems are under `/stratis/pool-name`
+
+- View filesystems: `stratis filesystem list`
+
+- To mount in `/etc/fstab`, get UUID for new filesystem with `lsblk --output=UUID /stratis/pool-name/filesystem-name`. 
+	MUST include option `x-systemd.requires=stratisd.service` for mounting after Stratis daemon is started or else you will boot into `emergency.target` if this is a root partition. 
+
+### Compressing storage with Virtual Data Organizer (VDO)
+
+Virtual Data Organizer is a device mapper driver that compresses files and checks for duplicate files to further save disk space and throughput. 
+
+Uses kernel module `kvdo` to compress data and `uds` to deduplicate data.
+
+Installed on top of block devices or RAID and below storage layers like LVM and filesystems. 
+
+Three stages:
+
+- zero-block elimination
+- deduplication
+- compression
+
+#### VDO Volumes
+
+VDO Volumes act like disk partitions. They can have filesystems written on them and used for LVM. They are thinly provisioned, so users only see *logical* size, not the *physical* size. 
+
+When creating, you can give it a logical size greater than the phyiscal size of the block devices it is over. If you ommit the size, VDO will the create the volume with 1:1 correspondence to physical device, which is faster, but misses out on storage efficiency.
+
+#### Usage
+
+Installing: `yum install vdo kmod-kvdo`
+
+Creating a VDO volume: `vdo create --name=my-vdo --device=/dev/sda --vdoLogicalSize=1000G`
+
+Can then format and mount like regular filesystem. 
+
+Check status with: `vdo status --name=my-vdo`
+
+List VDOs active: `vdo list`
+
+Stop a VDO: `vdo stop`
+
+Start a VDO: `vdo start`
+
 ## Network Storage
+
+### Mounting and Unmounting NFS shares
+
+#### mount
+
+To mount root of share and browse shared directories:
+
+```bash
+$ sudo mkdir /mnt/point
+$ sudo server-name:/mnt/point
+```
+
+If you know the actual path on share you want,
+
+```bash
+$ sudo mount -p /mnt/point
+$ sudo mount -t nfs -o rw,sync serverb:/share /mnt/point
+```
+
+`-o rw,sync` tell mount to immediately sync `/mnt/point` with share. 
+
+`-t nfs` tells mount that its an NFS share. 
+
+#### at boot with /etc/fstab
+
+Example `/etc/fstab` entry:
+
+`serverb:/share /mount/point  nfs  rw,soft  0 0`
+
+Then `sudo mount /mnt/point`, if not already mounted. 
+
+#### on demand
+
+With automounting, user mounting does not need admin access.
+Also, share is not permanently connected from `/etc/fstab`, saving newtork and cpu resources.  
+
+Install: `sudo yum install autofs`
+
+Enable: `sudo systemctl enable --now autofs`
+
+Add a *master map* file to `/etc/auto.master.d`. 
+This tells autofs what the base dir is for mapping shares and the automount mapping file.
+`sudo echo "/shares /etc/auto.demo" > /etc/auto.master.d/master-map.autofs"`
+`.autofs` extension required for autofs to recognize file. Can include multiple master map files. 
+
+Create the mapping file. By convention, filename begins with `auto.` then its identifier. `sudo echo "work  -rw,sync server-name:/shares/work " > /etc/auto.work` To map `/shares/work` on `server-name` to `/shares/work` locally. Here, `work` is the "key" used as mount point by autofs. `/shares` and `/shares/work` are created and removed as needed by autofs.
+
+##### Direct map
+
+To mount to a preexisting dir that autofs won't create and delete at will, use this format for the master map file:
+
+`/- /etc/auto.direct`
+
+The `/-` point tells autofs to use an existing mount point. Then, in `/etc/auto.direct`, a normal entry as:
+
+`/mnt/docs  -rw,sync  server-name:/shares/docs`
+
+autofs will not remove `/mnt`. But autofs will create/destroy `/mnt/docs`as needed.
+
+##### wildcard maps
+
+`*  -rw,sync  serverb:/shares/&`
+
+Here, everything under `/shares` on `serverb` is automounted when a user tries to access it. Ie, a user tries to access `/shares/dira/dirb` then `/shares/dira/dirb` is automatically created locally and mounted. 
+
+#### unmount
+
+`umount /mnt/point`
+
+### nfsconfig
+
+RHEL8 has new `nfsconfig` tool to manage client and server configs. Driven by `/etc/nfs.conf`. See `[nfsd]` section to config server. 
+
+`nfsconfig --set section key value` to update config with tool instead of by file. Easier to automate.
+
+`nfsconfig --get section key` to get value for a param in a given section
+
+`nfsconfig --unset section key` to reset value 
+
+
 
 ## Booting Up!
 
