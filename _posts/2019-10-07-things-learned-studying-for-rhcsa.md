@@ -1351,9 +1351,261 @@ Only `root` can *reduce* a process nice level. Normal users can *increase* the n
 
 ## ACLs to control file access
 
-## SELinux Productivity 
+*Access Control Lists* give more fine grained file permissions to different *named users* and *named groups*. Users can set ACLs on files and dirs they own. `CAP_FOWNER` usrs can set ACLs for any file and dir. New files subdirs inherit the ACL settings of their parent dir. 
+Note the `X` permissions for directories allow the directory's contents to be searchable.
+
+Filesystems need to be mounted with ACL support. ext3 and ext4 have the `acl` enable by default in RHEL. XFS have ACL built in. To enable support, toggle the ACL option when using `mount` to mount the filesystem or in the `/etc/fstab` file and reboot. 
+
+`ls -l` will only show a `+` at the end of the permissions string to show that ACLs exist for that file/dir. 
+
+`getfacl file-name` to display the ACL settings for file-name. 
+
+`getfacl .` to display ACL settings for current dir
+
+`getfacl -F /some/dir` to recursively display ACL details for `/some/dir`
+
+`getfacl` output can be used as input for `setfacl`. So you could direct the output to a file as a backup, then restore later with `setfacl --set-file=backup-acl.txt`
+
+Example output:
+```
+[user@host content]$ getfacl .
+# file: .
+# owner: user
+# group: operators
+# flags: -s-
+user::rwx
+user:consultant3:---
+user:1005:rwx
+group::rwx
+group:consultant1:r-x
+group:2210:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:user:consultant3:---
+default:group::rwx
+default:group:consultant1:r-x
+default:mask::rwx
+default:other::---
+```
+
+First part is comments for targeted name, owner user, and owner group. If any extra dir flags `setuid`, `setgid`, `sticky`, then a list of flags. Here, `setgid`: `flags: -s-` 
+
+Then list of user ACLs. Note the owner `user`, the named user `consultant3`, and the UID `1005`. 
+
+Then the group ACLs. Note the owner group has `rwx`, but the group `consultant1` can only `r-w` and GID `2210` has `rwx`. 
+
+The `default:mask:rwx` shows the initial maximum permission for any new files or subdirs. New subdirs can have execute permission, but not new files. 
+
+`default:other::---` means all UIDs and GIDs not mentioned above have NO permissions to new files or subdirs. The named UID and GID above will not get initial ACL entries for new files and subdirs. But they can still create their own files and subdirs. 
+
+#### ACL mask
+
+ACL mask is max permissions to named users, group owner, and named groups. It doesn't affter permissions of file owner or `other` non-named users. All files and dirs with ACLs will have ACL mask. Mask can be viewed with `getfacl` and set with `setfacl` and will be recalculated when any relevent ACLs are updated. 
+
+#### Permission Precedence
+
+Given a process
+
+Does the process's user own the file? Then file users ACL permissions apply
+
+Is the process's user a named user for that file? then the named users ACL permissions apply.
+
+Is the process running under a group that owns the file or is a named group? Then ACL for that group applies
+
+Else, the file's `other` ACL permissions apply. 
+
+#### Examples
+
+`systemd-journald` uses ACL to allow read acces to `/var/log/journal/.../system.journal` to `adm` and `wheel` groups. This lets `adm` and `wheel` users view the journals without giving access to secure content in `/var/log`
+```
+$ getfacl /var/log/journal
+getfacl: Removing leading '/' from absolute path names
+# file: var/log/journal
+# owner: root
+# group: systemd-journal
+# flags: -s-
+user::rwx
+group::r-x
+group:adm:r-x
+group:wheel:r-x
+mask::r-x
+other::r-x
+default:user::rwx
+default:group::r-x
+default:group:adm:r-x
+default:group:wheel:r-x
+default:mask::r-x
+default:other::r-x
+```
+
+
+`systemd-udev` uses `udev` rules to set ACLs so that users logged in with deskto GUIs can fully access devices like CD/DVD players, USB storage, sound cards, etc. ACLs active until user logs out, then new ACLs applied when another user logs in.
+
+
+### securing with ACLs
+
+`setfacl` to add/modify/remove ACLs on files and directories. Same permission syntax as `chmod`. 
+
+`-m` to add/modify an ACL.  Other ACLs unaffected.
+
+`-M` to add/modify with a file or STDIN (`-` as filename). Other ACLs unaffected.
+
+`--set` or `--set-file` to completely replace all ACLs.
+
+`setfacl -m u:some-user:rX some-filename` read and execute perms for `some-file` for `some-user`
+
+If user field is blank, then assumes file owner. Similar to `chmod`, but `chmod` has no effect on named users.
+
+`setfacl -m g:some-group:rw some-file` to give `some-group` read/write access to `some file`
+
+`setfacl -m o::- file-name` to give no permissions to non-owner, non-named users and groups.
+
+Can set multiple ACLs with comma seperated entries:
+
+`setfacl -m u::rwx,g:consultants:rX,o::- file-name` to give owning user rwx, rx to the consultants group and no permissions to everyone else. 
+
+#### Recursive ACL mods
+
+`setfacl -R -m u:some-user:rX /some/dir` to recursively give some-user rX permissions to all files and subdirs in /some/dir
+
+#### Deleting ACLs
+
+`setfacl -x u:some-user,g:some-group some-file` to remove ACL for `some-user` and `some-group` from `some-file`.
+Other ACLs for that file are unaffected.
+
+Mask ACL cna only be deleted after all other ACLs are deleted. When mask is gone, then `+` will no long appear in `ls -l` output to show ACL presence. 
+
+`setfacl -b some-file` to remove all ACLs at once
+
+#### ACL inheritance
+
+Set a default ACL on a directory so all files and subdirs inherit the ACL by default.
+The directory itself still needs regular ACL, setting a default ACL just enables the inheritance.
+
+`setfacl -m d:u:some-user:rx /some/dir/` to give some-user rx perms to /some/dir and subdirectories.
+
+Same syntax as regular ACLs, just prefixed with `d:` or with `-d`
+
+Delete a default ACL the same way, but with `d:`
+
+`setfacl -x d:u:some-user /some/dir`
+
+## SELinux Security
+
+File permissions only control *who* can user a file, not *how* and to *do what*. 
+If a hacker gains control of a process, they can execute actions as its user and spread throughout the system.
+So if a hacker controls `apache`, which has write access to `/var` and `/tmp`, they can see all other files in those dirs. Not good!
+
+SELinux is set of polcies for an executable on what files and operations it is allowed for execution, config, and data.
+
+Modes
+
+- Enforcing: blocks bad access. On by default.
+
+- Permissive: not blocking access, but logs SELinux interactions. For testing and debugging.
+
+- Disabled: don't do this. 
+
+Display the current mode with `getenforce` and change with `setenforce`.
+You can set at boot time with the kernel param `enforcing` where `enforcing=1` turns on Enforcing mode and `enforcing=0` is Permissive.
+You can turn it off completely with boot param `selinux=0` or back on with `selinux=1`
+Kernel params override this, but you can also change the file `/etc/selinux/config` to set enforcement mode. 
+
+Every file, dir, process and port has a *SELinux context* label. 
+This label is checked to see if a process can access it. 
+Explicity access is required by default.
+
+SELinux labels have contexts for user, role, type, and sensitivity level.  
+
+SELinux user names are suffixed `_u`, roles `_r` and types `_t`. 
+
+`someuser_u:object_r:httpd_sys_context_t:s0:/var/www/html/index.html`
+
+By default in RHEL, the type context is used  for access rules. 
+
+To display SELinux labels, use the `-Z` flag for `ps`, `ls`.
+To set SELlinux labels, use the `-Z` flag for `cp` and `mkdir`.
+
+### Controlling Contexts
+
+All processes and files are labeled with security context. New files inherit their context from parent dir.
+
+However, files copied from other directories may retain their original directory context, not the context of their destination. This happens with `cp -a`. 
+(Copy, preserve all)
+
+`chcon` changes SELinux context for a file or dir. It should only be used for testing because it does not backup to SELinux context database.
+`restorecon` will reset the context to the default for that location. 
+
+```bash
+$ mkdir test
+$ ls -Zd test
+unconfined_u:object_r:user_home_t:s0 test
+
+$ chcon -t httpd_sys_content_t test
+$ ls -Zd test
+unconfined_u:object_r:httpd_sys_content_t:s0 test
+
+$ restorecon -v test
+Relabeled /home/kh/develop/github.io/herbertkb.github.io/_posts/test from unconfined_u:object_r:httpd_sys_content_t:s0 to unconfined_u:object_r:user_home_t:s0
+$ ls -Zd test
+unconfined_u:object_r:user_home_t:s0 test
+```
+
+`semanage fcontext` changes context and affects the database `restorecon` uses to reset contexts to default.
+
+`sudo semanage fcontext -l` lists the rules `restorecon` will apply to restore to default. 
+
+`sudo semanage fcontext -a -t some-new-content_t` to add a context type
+
+`sudo semanage fcontext -d` to delete a context type
+
+
+### SELinux Booleans
+
+SELinux Booleans are on/off rules to fine tune SELinux behavior. 
+
+`man booleans` for an overview.
+
+`man -k _selinux` to list all boolean man pages 
+
+`getsebool -a` to list all booleans current values.
+
+`getsebool httpd_enable_homedirs` to get current value of specific boolean
+
+`sudo semanage boolean -l` as well to see current values and short description. requires root access.
+
+`sudo semanage boolean -l -C` to list just the values that differ from default
+
+`sudo setsebool httpd_enable_homedirs on` to turn a boolean on or off
+
+`sudo setsebool -P httpd_enable_homedirs on` to turn a boolean on or off, persistent over rebooting
+
+### Investigating SELinux Issues
+
+SELinux is usually doing its job correctly by blocking access. Ie, a webserver trying to access `/home` when user files haven't been configured for sharing. 
+
+Most common issue is wrong file context comes from when a file is created in a place with one context and then moved to a place with a different context. 
+
+An SELinux Boolean may also need to be adjusted. Ie, `ftp_anon_write` to allow anonymous ftp users to upload files. 
+
+#### Monitoring for SELinux violations
+
+`setroubleshoot-server` sends SELinux error messages from `var/log/audit/audit.log` to `/var/log/messages`.
+
+These messages have a UUID which can be searched for with `sealert -l UUID` to generate detailed summary around specific incident. 
+
+`sealert -a /var/log/audit/audit.log` to generate report for all incidents. 
+
+`ausearch` can also search the `/var/log/audit.log` for incidents and filter by incident type and time.
+
+`ausearch -m AVC -ts recent`
+
+Web Console also includes a friendly way to view SELinux reports. 
 
 ## Basic Storage
+
+
 
 ## Logical Volume Management
 
