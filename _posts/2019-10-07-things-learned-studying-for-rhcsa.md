@@ -1905,6 +1905,79 @@ RHEL8 has new `nfsconfig` tool to manage client and server configs. Driven by `/
 
 ## Booting Up!
 
+### RHEL8 Boot process
+
+1. machine turns on. UEFI (or old BIOS) loads firmware. Enter the specific key combo to stop at UEFI/BIOS if needed. 
+
+2. firmware looks for bootable disk from either UEFI setting or scanning disks for MBR with bootable flag. 
+
+3. firmware loads bootloader from disk and gives over control to bootloader. in RHEL8, this is `grub2`. `grub2-install` installs the bootloader. 
+
+4. `grub2` loads its config from `/boot/grub2/grub.cfg` and displays boot menu with kernel selection. This menu is configed in `/etc/grub.d` and  `/etc/grub/default` and generated with `grub2-mkconfig`
+
+5. Selected kernel is loaded into memory along with `initramfs` which contains all required hardware drivers and init scripts to boot. In RHEL8, this is a "usable" system.
+
+6. kernel takes from control from bootloader, initializes all hardware, and starts `/sbin/init` with PID 1. In RHEL8, this is `systemd`. This is configed with kernel param `init=`
+
+7. `systemd` excutes all units for `initrd.target`, including mounting root filesystem from disk as `/sysroot`. Configed with `/etc/fstab`.
+
+8. kernel remounts root filesystem from `initramfs` to `/sysroot` and `systemd` reexecutes itself from the `systemd` on disk
+
+9. `systemd` looks for the default target (final execution state) and executes dependency targets along the way to reaching it. This finishes with either a console login or GUI login screen. default target is configed in `/etc/systemd/system/default.target` and `/etc/systemd/system`
+
+### Reboot and shutting down
+
+`systemctl poweroff` stops all services, unmounts all mounts or remounts them read only, turns off system
+
+`systemctl reboot` stops all services, unmounts all mounts, reboots
+
+### systemd targets
+
+`graphical.target`: GUI or console login
+
+`multi-user.target`: console login
+
+`rescue.target`: `sulogin` prompt, only the most basic system init is completed. disk filesystem not mounted.
+
+`emergency.target`: `sulogin` prompt, disk filesystem mount to `/` readonly.
+
+Targets include other targets as dependencies. `multi-user.target` is a dependency of `graphical.target`. 
+
+To list targets:
+
+`systemctl list-units --type=target --all`
+
+#### select a target without restarting
+
+This stops all services not part of that target and starts services for that target not already running. 
+
+`systemctl isolate multi-user.target`
+
+Only targets with `AllowIsolate=yes` in their unit files can isolated.
+
+#### setting default
+
+`systemctl get-default` to check current default target 
+
+`systemctl set-default graphical.target` to set default target
+
+Edit the kernel param `systemd.unit=rescue.target` to change default target while booting 
+
+### Reset the root password 
+
+From the bootloader, append `rd.break` to the kernel params. This stops the boot process right after kernel switches from `initramfs` to real filesystem. You'll have a root shell and the filesystem mounted at `/sysroot`.
+
+1. remount `/sysroot` as `rw`: `mount -o remount,rw /sysroot`
+
+2. chroot to /sysroot to make it the effect root filesystem: `chroot /sysroot`
+
+3. set new password: `passwrd root`
+
+4. Make sure `/etc/shadow` get its SELinux label fixed: `touch /.autorelabel`
+
+5. `exit` twice to resume boot process.
+
+
 ## Network Security
 
 ## Install RHEL
