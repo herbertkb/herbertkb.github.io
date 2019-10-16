@@ -2158,5 +2158,17 @@ Kickstart file must be available to Anaconda during install. Could be on HTTP, F
 
 Use the `inst.ks= LOCATION` kernel param at the boot screen to select the kickstart file
 
+## Virtual Machines
+
+Manage KVM vms with `virsh` or Cockpit/WebConsoles VM view. 
+
+### Make RHEL system a VM host
+
+Install `virsh` module: `yum module install virt`
+
+Validate system for processor and kernel support: `virt-host-validate`
+
+To manage with Cockpit/Web Console, install `cockpit-machines`. Enable if not already running: `systemctl enable --now cockpit.socket`. Login at port 9090
+
 
 
