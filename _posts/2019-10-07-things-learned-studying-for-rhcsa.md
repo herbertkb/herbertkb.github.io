@@ -1977,10 +1977,186 @@ From the bootloader, append `rd.break` to the kernel params. This stops the boot
 
 5. `exit` twice to resume boot process.
 
+### Failed Boot Logs
+
+By default, boot logs are written to `/run/log/journal` which does not persist across boots. To persist to `/var/log/journal`, edit `/etc/systemd/journald.conf` and set `Storage=persistent`. Then run `systemctl restart systemd-journald.service` to reload the config.  
+
+`journalctl -b` displays logs of boot process. With negative  args, it shows prior boots.`-p err` filters by error and worse.
+
+`journalctl -b -1 -p err`
+
+### Repairing bad boots
+
+You can enable debug shell with kernel param `systemd.debug-shell=1`. 
+Then next boot, switch to tty9 (Ctrl+Alt+9). 
+Turn this off when finished debugging. It's a root shell!
+
+### Boot directly into emergency or rescue
+
+Append `systemd.unit=rescue.target` or `systemd.unit=emergency.target` to kernel boot params to boot directly into those targets for debugging and troubleshooting. 
+
+Emergency target boots filesystem as read only until remounted rw. This can help in fixing broken `/etc/fstab` or conflicting services. 
+
+On bootup, `systemd` spawns jobs. If any jobs are stuck, they may prevent other jobs from starting. Run `systemctl list-jobs` to look for stuck jobs.
 
 ## Network Security
 
+### Server Firewalls
+
+Firewalls filter packets and translate address and ports. 
+
+`netfilter` is a firewall framework in Linux kernel which allows other kernel modules to work with network stack within kernel before reaching user processes. `netfilter` can be configed with `iptables`, `ip6tables`, `arptables`, and `ebtables`. However, so many different config tools can cause conflicts. 
+
+`nftables` is new firewall framework similar to `netfilter` but can only be configed with `nft` user-space utility. This simplifies the interfaces.  Its also faster and allows IPv4 and IPv6 filtering from same rules (nice!).
+
+`firewalld` is a frontend to `nftables` over `nft`. `firewalld` used to use `iptables` to configure `netfilter` so the switch to `nft` and `nftables` does not change syntax and files to configure. 
+
+Network traffic is organized as *zones*. `nftables` uses source IP address or interface as input to rules to assign to zones. Each zone has services and ports which are open or closed. 
+
+NetworkManager can automatically change zones for a laptop system moving between private home  or work and public wifi networks.
+
+If source IP address matches a zone's config, it is assigned to that zone. Else, it is assigned to a zone based on the incoming interface. If that interface does not have a zone assigned, then it goes to default zone. 
+
+By default, default zone is `public` and `lo` loopback is the `trusted` zone. 
+
+`firewalld` has list of predefined zones. View them with `man firewalld.zones`
+
+`firewalld` has list of predefined services. View them with will `firewall-cmd --get-services`. Config for predefined services: `/usr/lib/firewalld/services`
+
+`firewalld` can be configed with Web Console or by `firewall-cmd`
+
+Example commands:
+
+`# firewall-cmd --set-default-zone=dmz` To set default to `dmz` zone
+
+`# firewall-cmd --permanent --zone=internal --add-source=192.168.0.0/24` assign all traffic from 192.168.0.0 subnet to `internal` zone
+
+`# firewall-cmd --permanent --zone=internal --add-service=mysql` assign all traffic for `mysql` service to `internal` zone
+
+`# firewall-cmd --reload` load changes
+
+### SELinux Port Security
+
+Ports have a security context just as files and dirs. To see list of available contexts: `semanage port -l`. Format is port label, protocol, ports.
+
+If you try to use a nonstandard port for a standard service, SELinux will probably block you. Often, standard services will already have a label. 
+
+`semanage port -a -t port_label_t -p tcp 8888` to `a`dd a label `port_label_t` to TCP port 8888
+
+`semanage port -d -t port_label -p tcp 8888` to `d`elete a port label
+
+`semanage port -m -t port_label -p tcp 8888` to `m`odify a port label
+
+May need to restart any services previously blocked by SELinux for change to take effect. 
+
+`semanage port -l -C` to view all *changed* port labels
+
 ## Install RHEL
 
-lmao this is the last chapter? haha, nice.
+QCOW2 install format for virtual disk images. 
+
+*Composer* is new RHEL8 tool to help create custom system images for cloud and virtual platforms. It used Cockpit Web Console. Start with `composer-cli` 
+
+### Automated installs with Kickstart
+
+Kickstart files drive kickstart installation. `#` or `;` are comments. Sections are marked with `%section-name` and `%end`. 
+The `%packages` section lists packages to install, without version numbers. 
+`@` denotes package groups.
+`@ module:stream/profile` is format for module streams. 
+`-` marks a package as NOT to install unless mandatory dependency for another package. 
+
+`%pre` section has scripts to run before disk partitioning. Useful if need to recognize or setup devices first. 
+
+`%post` section has scripts to run after installation complete.
+
+#### Installation commands
+
+`url` to use for install media
+`url --url="http://classroom.example.com/content/rhel8.0/x86_64/dvd/"`
+
+`repo` to use for packages not on install media
+`repo --name="appstream" --baseurl=http://classroom.example.com/content/rhel8.0/x86_64/dvd/AppStream/`
+
+`text` to do a text-mode install
+
+`vnc` to monitor graphical install over vnc
+`vnc --password=asdfasdf`
+
+#### Partitioning commands
+
+`clearpart` to wipe all or specific partitions on disk. By default, no partitions are removed. 
+`clearpart --all --drives=sda,sdb --initlabel`
+
+`part` to create partition, filesystem and mount point
+`part /home --fstype=ext4 --label=homes --size=4096 --maxsize=8192 --grow`
+
+`autopart` to automatically define and create `/boot` `/` and on large devices `/home` partitions
+
+`ignoredisk` to not touch disk on install. (good combo with autopart if you have data on disk) `ignoredisk --drives=sdc`
+
+`bootloader` to mark which disk to boot from `bootloader --location=mbr --boot-drive=sda`
+
+`volgroup`,`logvol` to create LVM logical groups and volumes
+
+```
+part pv.01 --size=8192
+volgroup myvg pv.01
+logvol / --vgname=myvg --fstype=xfs --size=2048 --name=rootvol --grow
+logvol /var --vgname=myvg --fstype=xfs --size=4096 --name=varvol
+```
+
+`zerombr` to initialize disks with unknown formatting.
+
+#### Network Commands
+
+`network` to setup network connections for installation `network --device=eth0 --bootproto=dhcp`
+
+`firewall` to open  and close ports during installation `firewall --enabled --service=ssh,http`
+
+#### Localization Commands
+
+`lang` language to use during install `lang en_US.UTF-8`
+
+`keyboard` keyboard to use `keyboard --vckeymap=us --xlayouts=''` 
+
+`timezone` timezone, NTP, hardware clock setting: `timezone --utc --ntpservers=time.example.com Europe/Amsterdam`
+
+#### Security commands
+
+`authselect` to use authentication. see `man authselect` for configurations
+
+`rootpw` to set root password. Plaintext `rootpw --plaintext hello` or encrypted `rootpw --iscrypted $6$KUnFfrTzO8jv.PiH$YlBbOtXBkWzoMuRfb0.SpbQ....XDR1UuchoMG1`
+
+`selinux` to set SELinux mode `selinux --mode=enforcing`
+
+`services` to run with default `systemd` target: `services --disabled=network,iptables,ip6tables --enabled=NetworkManager,firewalld`
+
+`group`,`user` to create groups and users
+
+```
+group --name=admins --gid=10001
+user --name=jdoe --gecos="John Doe" --groups=admins --password=changeme --plaintext
+```
+
+#### Misc commands
+
+`logging` to log installation to remote host
+
+`firstboot` to run setup agent on first boot. requires `initial-setup` package installed
+
+`halt` `poweroff` `reboot` what to do when install finished
+
+#### Validation 
+
+Missing required values for a command will cause installation to pause with prompt for required value.
+
+`ksvalidator` validates a kickstart file for correct command names and argument names but does not test urls are reachable or if `%pre` and `%post` scripts are correct. 
+
+#### Installation
+
+Kickstart file must be available to Anaconda during install. Could be on HTTP, FTP NSF share, on the install media itself or a local disk location. 
+
+Use the `inst.ks= LOCATION` kernel param at the boot screen to select the kickstart file
+
+
 
